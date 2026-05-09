@@ -3,6 +3,19 @@ import subprocess
 import sys
 import os
 
+FAILED_LIST_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "failed_models.txt")
+
+def load_failed_models():
+    if not os.path.exists(FAILED_LIST_PATH):
+        return set()
+    with open(FAILED_LIST_PATH, "r") as f:
+        return set(line.strip().lower() for line in f if line.strip())
+
+def save_failed_model(model_name):
+    with open(FAILED_LIST_PATH, "a") as f:
+        f.write(model_name.lower() + "\n")
+    print(f"  [記錄] {model_name} 已寫入失敗清單，下次將跳過。")
+
 def ensure_dependencies():
     """確保環境依賴已安裝"""
     # 1. 檢查並安裝 playwright python 套件
@@ -44,6 +57,10 @@ def scrape_and_pull():
     if installed_models:
         print(f"[*] 已安裝 {len(installed_models)} 個模型，掃描時將自動跳過。")
 
+    failed_models = load_failed_models()
+    if failed_models:
+        print(f"[*] 讀取到 {len(failed_models)} 個上次失敗的模型，將自動跳過。")
+
     with sync_playwright() as p:
         print("[*] 啟動自動化引擎...")
         browser = p.chromium.launch(headless=True)
@@ -81,18 +98,28 @@ def scrape_and_pull():
                     
                     if "cloud" in content:
                         model_full = f"{base_name}:cloud"
+                        model_key = model_full.lower()
 
-                        if model_full.lower() in installed_models:
+                        if model_key in installed_models:
                             print(f"--- [跳過] {model_full} 已安裝 ---")
+                            total_skipped += 1
+                            found_in_page += 1
+                            continue
+
+                        if model_key in failed_models:
+                            print(f"--- [跳過] {model_full} 上次失敗，略過 ---")
                             total_skipped += 1
                             found_in_page += 1
                             continue
 
                         print(f"--- [偵測到] {model_full} ---")
                         if run_ollama_pull(model_full):
-                            installed_models.add(model_full.lower())
+                            installed_models.add(model_key)
                             found_in_page += 1
                             total_installed += 1
+                        else:
+                            save_failed_model(model_full)
+                            failed_models.add(model_key)
 
                         time.sleep(1)
 
