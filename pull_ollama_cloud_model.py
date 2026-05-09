@@ -3,7 +3,8 @@ import subprocess
 import sys
 import os
 
-FAILED_LIST_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "failed_models.txt")
+# 固定存在 ~/.ollama/ 下，不受腳本執行位置影響
+FAILED_LIST_PATH = os.path.join(os.path.expanduser("~"), ".ollama", "failed_models.txt")
 
 def load_failed_models():
     if not os.path.exists(FAILED_LIST_PATH):
@@ -138,9 +139,22 @@ def scrape_and_pull():
 
 def run_ollama_pull(model_name):
     try:
-        # 直接調用系統的 ollama 指令
-        process = subprocess.run(["ollama", "pull", model_name])
-        return process.returncode == 0
+        # stdout 讓使用者看到進度，stderr 捕捉來偵測錯誤
+        process = subprocess.run(
+            ["ollama", "pull", model_name],
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        # return code 不是 0 → 失敗
+        if process.returncode != 0:
+            if process.stderr:
+                print(process.stderr.strip())
+            return False
+        # return code 是 0 但 stderr 含 error 關鍵字 → 也算失敗
+        if process.stderr and "error" in process.stderr.lower():
+            print(process.stderr.strip())
+            return False
+        return True
     except FileNotFoundError:
         print("[危險] 系統找不到 'ollama' 指令，請先安裝 Ollama 並加入 PATH。")
         return False
